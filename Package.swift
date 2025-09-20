@@ -1,10 +1,10 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.9
 
 import PackageDescription
 
 let package = Package(
     name: "swift-package-collection-generator",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "package-collection-generate", targets: ["PackageCollectionGenerator"]),
         .executable(name: "package-collection-sign", targets: ["PackageCollectionSigner"]),
