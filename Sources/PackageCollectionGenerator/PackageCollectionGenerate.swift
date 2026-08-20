@@ -352,36 +352,68 @@ public struct PackageCollectionGenerate: AsyncParsableCommand {
         let tags = try GitUtilities.listTags(for: gitDirectoryPath)
         print("Tags: \(tags)", inColor: .yellow, verbose: self.verbose)
 
-        // Sort tags in descending order (non-semver tags are excluded)
+        // Sort tags in descending order (non-semver tags are excluded).
+        // Releases (no prerelease identifier such as -stage, -rc, -nightly) are selected
+        // first so the collection header shows the latest stable version.
         // By default, we want:
-        //  - At most 3 minor versions per major version
+        //  - At most 3 unique minor versions per major version
         //  - Maximum of 2 majors
-        //  - Maximum of 6 versions total
+        //  - Plus the single latest prerelease, appended after releases
         var allVersions: [(tag: String, version: Version)] = tags.compactMap { tag in
             // Remove common "v" prefix which is supported by SwiftPM
             Version(tag.hasPrefix("v") ? String(tag.dropFirst(1)) : tag).map { (tag: tag, version: $0) }
         }
         allVersions.sort { $0.version > $1.version }
 
+        let releases = allVersions.filter { $0.version.prereleaseIdentifiers.isEmpty }
+        let prereleases = allVersions.filter { !$0.version.prereleaseIdentifiers.isEmpty }
+
+        var versions = self.selectLimitedVersions(
+            from: releases,
+            maxMajors: 2,
+            maxUniqueMinorsPerMajor: 3
+        )
+
+        if let latestPrerelease = prereleases.first, !versions.contains(latestPrerelease.tag) {
+            versions.append(latestPrerelease.tag)
+        }
+
+        print("Default versions: \(versions)", inColor: .green, verbose: self.verbose)
+
+        return versions
+    }
+
+    /// Picks the newest unique minor for each of the newest majors.
+    /// `items` must already be sorted in descending semver order.
+    private func selectLimitedVersions(
+        from items: [(tag: String, version: Version)],
+        maxMajors: Int,
+        maxUniqueMinorsPerMajor: Int
+    ) -> [String] {
         var versions = [String]()
         var currentMajor: Int?
         var majorCount = 0
+        var currentMinor: Int?
         var minorCount = 0
-        for tagVersion in allVersions {
-            if tagVersion.version.major != currentMajor {
-                currentMajor = tagVersion.version.major
+
+        for item in items {
+            if item.version.major != currentMajor {
+                currentMajor = item.version.major
+                currentMinor = nil
                 majorCount += 1
                 minorCount = 0
             }
 
-            guard majorCount <= 2 else { break }
-            guard minorCount < 3 else { continue }
+            guard majorCount <= maxMajors else { break }
+            if item.version.minor == currentMinor {
+                continue
+            }
+            guard minorCount < maxUniqueMinorsPerMajor else { continue }
 
-            versions.append(tagVersion.tag)
+            currentMinor = item.version.minor
+            versions.append(item.tag)
             minorCount += 1
         }
-
-        print("Default versions: \(versions)", inColor: .green, verbose: self.verbose)
 
         return versions
     }
